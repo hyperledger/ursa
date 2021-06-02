@@ -1,0 +1,49 @@
+[package]
+name = "pairings"
+
+edition = "2018"
+# Remember to change version string in README.md.
+
+version = "0.20.0"
+authors = [
+    # authors of the original pairing library
+    "Sean Bowe <ewillbefull@gmail.com>",
+    "Jack Grigg <jack@z.cash>",
+    # maintainers of this pairing-fork library
+    "Riad S. Wahby <kwantam@gmail.com>",
+    "Zhenfei Zhang <zhenfei@algorand.com>"
+]
+license = "MIT"
+
+description = "Pairing-friendly elliptic curve library"
+
+# original documentation
+#   documentation = "https://docs.rs/pairing/"
+# documentation for this fork
+documentation = "https://docs.rs/pairings/"
+
+# original homepage
+#   homepage = "https://github.com/ebfull/pairing"
+# homepage for this fork
+homepage = "https://github.com/algorand/pairings"
+
+# original repo
+#   repository = "https://github.com/ebfull/pairing"
+# repo for this fork
+repository = "https://github.com/algorand/pairings"
+
+[dependencies]
+byteorder = "1"
+digest = "0.9"
+ff = { version = "0.6", features = ["derive"], package = "ff-zeroize" }
+rand_core = "0.5"
+rand_xorshift = "0.2"
+zeroize = { version  = "1.2", features = ["zeroize_derive"]}
+
+[dev-dependencies]
+hex = "0.4"
+sha2 = "0.9"
+sha3 = "0.9"
+
+[features]
+default = []

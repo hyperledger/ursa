@@ -29,6 +29,9 @@ members = [
     "ursa_shortgroupsignatures",
     "ursa_signatures"
 ]
+exclude = [
+    "pairings",
+]
 
 [features]
 default = ["sharing"]
