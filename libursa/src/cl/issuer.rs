@@ -76,31 +76,73 @@ impl Issuer {
         let (p_pub_key, p_priv_key, p_key_meta) =
             Issuer::_new_credential_primary_keys(credential_schema, non_credential_schema)?;
 
-        let (r_pub_key, r_priv_key) = if support_revocation {
-            Issuer::_new_credential_revocation_keys()
-                .map(|(r_pub_key, r_priv_key)| (Some(r_pub_key), Some(r_priv_key)))?
-        } else {
-            (None, None)
-        };
+        Issuer::_new_credential_def_with_keys(
+            credential_schema,
+            support_revocation,
+            p_pub_key,
+            p_priv_key,
+            p_key_meta,
+        )
+    }
 
-        let cred_pub_key = CredentialPublicKey {
-            p_key: p_pub_key,
-            r_key: r_pub_key,
-        };
-        let cred_priv_key = CredentialPrivateKey {
-            p_key: p_priv_key,
-            r_key: r_priv_key,
-        };
-        let cred_key_correctness_proof = Issuer::_new_credential_key_correctness_proof(
-            &cred_pub_key.p_key,
-            &cred_priv_key.p_key,
-            &p_key_meta,
+    /// Creates and returns credential definition (public and private keys, correctness proof) entities.
+    ///
+    /// Same as `new_credential_def` but allows to pass pre-generated safe prime numbers to
+    /// speed up credential definition generation. Safe prime numbers can be pre-generated with
+    /// `ursa::helpers::generate_safe_prime`.
+    ///
+    /// # Arguments
+    /// * `credential_schema` - Credential schema entity.
+    /// * `support_revocation` - If true non revocation part of keys will be generated.
+    /// * `p_safe` - pre-generated safe prime number
+    /// * `q_safe` - pre-generated safe prime number
+    ///
+    /// # Example
+    /// ```
+    /// use ursa::cl::issuer::Issuer;
+    ///
+    /// let mut credential_schema_builder = Issuer::new_credential_schema_builder().unwrap();
+    /// credential_schema_builder.add_attr("name").unwrap();
+    /// credential_schema_builder.add_attr("sex").unwrap();
+    /// let credential_schema = credential_schema_builder.finalize().unwrap();
+    ///
+    /// let mut non_credential_schema_builder = Issuer::new_non_credential_schema_builder().unwrap();
+    /// non_credential_schema_builder.add_attr("master_secret").unwrap();
+    /// let non_credential_schema = non_credential_schema_builder.finalize().unwrap();
+    ///
+    /// let (_cred_pub_key, _cred_priv_key, _cred_key_correctness_proof) = Issuer::new_credential_def(&credential_schema, &non_credential_schema, true).unwrap();
+    /// ```
+    pub fn new_credential_def_with_primes(
+        credential_schema: &CredentialSchema,
+        non_credential_schema: &NonCredentialSchema,
+        support_revocation: bool,
+        p_safe: &BigNumber,
+        q_safe: &BigNumber,
+    ) -> UrsaCryptoResult<(
+        CredentialPublicKey,
+        CredentialPrivateKey,
+        CredentialKeyCorrectnessProof,
+    )> {
+        trace!(
+            "Issuer::new_credential_def_with_primes: >>> credential_schema: {:?}, support_revocation: {:?}",
+            credential_schema,
+            support_revocation
+        );
+
+        let (p_pub_key, p_priv_key, p_key_meta) = Issuer::_new_credential_primary_keys_with_primes(
+            credential_schema,
+            non_credential_schema,
+            p_safe,
+            q_safe,
         )?;
 
-        trace!("Issuer::new_credential_def: <<< cred_pub_key: {:?}, cred_priv_key: {:?}, cred_key_correctness_proof: {:?}",
-               cred_pub_key, secret!(&cred_priv_key), cred_key_correctness_proof);
-
-        Ok((cred_pub_key, cred_priv_key, cred_key_correctness_proof))
+        Issuer::_new_credential_def_with_keys(
+            credential_schema,
+            support_revocation,
+            p_pub_key,
+            p_priv_key,
+            p_key_meta,
+        )
     }
 
     /// Creates and returns revocation registry definition (public and private keys, accumulator and tails generator) entities.
@@ -780,7 +822,33 @@ impl Issuer {
         CredentialPrimaryPublicKeyMetadata,
     )> {
         trace!(
-            "Issuer::_new_credential_primary_keys: >>> credential_schema: {:?}",
+            "Issuer::_new_credential_primary_keys_with_primes: >>> credential_schema: {:?}",
+            credential_schema
+        );
+
+        let p_safe = generate_safe_prime(LARGE_PRIME)?;
+        let q_safe = generate_safe_prime(LARGE_PRIME)?;
+
+        Issuer::_new_credential_primary_keys_with_primes(
+            credential_schema,
+            non_credential_schema,
+            &p_safe,
+            &q_safe,
+        )
+    }
+
+    fn _new_credential_primary_keys_with_primes(
+        credential_schema: &CredentialSchema,
+        non_credential_schema: &NonCredentialSchema,
+        p_safe: &BigNumber,
+        q_safe: &BigNumber,
+    ) -> UrsaCryptoResult<(
+        CredentialPrimaryPublicKey,
+        CredentialPrimaryPrivateKey,
+        CredentialPrimaryPublicKeyMetadata,
+    )> {
+        trace!(
+            "Issuer::_new_credential_primary_keys_with_primes: >>> credential_schema: {:?}",
             credential_schema
         );
 
@@ -792,9 +860,6 @@ impl Issuer {
                 "List of attributes is empty",
             ));
         }
-
-        let p_safe = generate_safe_prime(LARGE_PRIME)?;
-        let q_safe = generate_safe_prime(LARGE_PRIME)?;
 
         let p = p_safe.rshift1()?;
         let q = q_safe.rshift1()?;
@@ -1128,6 +1193,50 @@ impl Issuer {
         );
 
         Ok(credential_context)
+    }
+
+    fn _new_credential_def_with_keys(
+        credential_schema: &CredentialSchema,
+        support_revocation: bool,
+        p_pub_key: CredentialPrimaryPublicKey,
+        p_priv_key: CredentialPrimaryPrivateKey,
+        p_key_meta: CredentialPrimaryPublicKeyMetadata,
+    ) -> UrsaCryptoResult<(
+        CredentialPublicKey,
+        CredentialPrivateKey,
+        CredentialKeyCorrectnessProof,
+    )> {
+        trace!(
+            "Issuer::new_credential_def_with_primes: >>> credential_schema: {:?}, support_revocation: {:?}",
+            credential_schema,
+            support_revocation
+        );
+
+        let (r_pub_key, r_priv_key) = if support_revocation {
+            Issuer::_new_credential_revocation_keys()
+                .map(|(r_pub_key, r_priv_key)| (Some(r_pub_key), Some(r_priv_key)))?
+        } else {
+            (None, None)
+        };
+
+        let cred_pub_key = CredentialPublicKey {
+            p_key: p_pub_key,
+            r_key: r_pub_key,
+        };
+        let cred_priv_key = CredentialPrivateKey {
+            p_key: p_priv_key,
+            r_key: r_priv_key,
+        };
+        let cred_key_correctness_proof = Issuer::_new_credential_key_correctness_proof(
+            &cred_pub_key.p_key,
+            &cred_priv_key.p_key,
+            &p_key_meta,
+        )?;
+
+        trace!("Issuer::new_credential_def: <<< cred_pub_key: {:?}, cred_priv_key: {:?}, cred_key_correctness_proof: {:?}",
+               cred_pub_key, secret!(&cred_priv_key), cred_key_correctness_proof);
+
+        Ok((cred_pub_key, cred_priv_key, cred_key_correctness_proof))
     }
 
     fn _new_primary_credential(
@@ -1467,6 +1576,34 @@ mod tests {
             true,
         )
         .unwrap();
+        key_correctness_proof.xr_cap.sort();
+        assert!(pub_key.r_key.is_some());
+        assert!(priv_key.r_key.is_some());
+        Prover::check_credential_key_correctness_proof(
+            &mocks::credential_primary_public_key(),
+            &mocks::credential_key_correctness_proof(),
+        )
+        .unwrap();
+        Prover::check_credential_key_correctness_proof(&pub_key.p_key, &key_correctness_proof)
+            .unwrap();
+    }
+
+    #[test]
+    fn issuer_new_credential_def_with_primes_works() {
+        MockHelper::inject();
+
+        let p_safe = BigNumber::from_dec("354523743991077536080894975731562551581529686893149094297102723909349187222651576180417390984965767355243859266881031427418507634277300529382744530540561250993165409731374226909016411906383603958061650234880705686790345244242716450001775952814165876503392619880850005545420299881027970160676053165184271093843").unwrap();
+        let q_safe = BigNumber::from_dec("275286699043115487852101782881471925285425232532563457037882593872089382617575828792512206695091537480973072731631999932441533079584122777128509622381066757335349592950209778579166856626597096125274011246274658744982010121160434017310112434475706961336173524810385195497780906001596548229668920176826695085339").unwrap();
+
+        let (pub_key, priv_key, mut key_correctness_proof) =
+            Issuer::new_credential_def_with_primes(
+                &mocks::credential_schema(),
+                &mocks::non_credential_schema(),
+                true,
+                &p_safe,
+                &q_safe,
+            )
+            .unwrap();
         key_correctness_proof.xr_cap.sort();
         assert!(pub_key.r_key.is_some());
         assert!(priv_key.r_key.is_some());
